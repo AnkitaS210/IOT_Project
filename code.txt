@@ -1,0 +1,185 @@
+#include "HX711.h" 
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SoftwareSerial.h>
+#include <Servo.h>
+#include <DallasTemperature.h>
+#include <OneWire.h>
+
+#definecalibration_factor -7050.0  //This value is obtained using the SparkFun_HX711_Calibration sketch
+#define REPORTING_PERIOD_MS     300        //refreshing rate 
+#define LOADCELL_DOUT_PIN  D5
+#define LOADCELL_SCK_PIN  D6 
+#define ONE_WIRE_BUS 9                              //SD2 pin of NodeMCU temp
+
+int red = 0;            // LED pin
+int gre1 = 13;        // LED pin
+int gre2 = 15;        // LED pin
+int mode1 = 16;    // push button is connected
+int tare1 = 5;         // push button is connected
+int set1 = 4;           // push button is connected
+float w1=0,w2=10;
+HX711 scale;
+Servo myservo;     // create servo object to control a servo
+OneWireoneWire(ONE_WIRE_BUS);
+
+DallasTemperature sensors(&oneWire);          // Pass the oneWire reference to Dallas Temperature.
+
+char auth[] = "8VKPbPNQ5tJkZiosPzClsev-24MKu1AX";
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "JioFiber-ak 5";
+char pass[] = "Indianarmyparasf21";
+
+int sensorValue = 0;                 // value read from the pot
+void setup() {
+Serial.begin(9600);
+pinMode(red, OUTPUT);        // declare LED as output
+pinMode(gre1, OUTPUT);      // declare LED as output
+pinMode(gre2, OUTPUT);      // declare LED as output
+pinMode(mode1, INPUT);      // declare push button as input
+pinMode(tare1, INPUT);         // declare push button as input
+pinMode(set1, INPUT);           // declare push button as input
+
+Blynk.begin(auth, ssid, pass);
+
+Serial.println("HX711 scale demo");
+myservo.attach(2);                // attaches the servo on pin 2  to the servo object( gpio pin no. 2 and not digital pin no. )
+scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN); //SCK - S clk
+scale.set_scale(calibration_factor);    //This value is obtained by using the SparkFun_HX711_Calibration sketch
+scale.tare();             //Assuming there is no weight on the scale at start up, reset the scale to 0
+// Initialize the PulseOximeter instance
+// Failures are generally due to an improper I2C wiring, missing power supply
+// or wrong target chip
+//  myservo.write(param.asInt());    
+Serial.println("Readings:");
+}
+BLYNK_WRITE(V4) //Button Widget is writing to pin V1. virtual pin
+{
+int pinValue = param.asInt(); 
+int val;
+val = map(pinValue, 0, 50, 0, 80);          // scale it to use it with the servo (value between 0 and 180)
+myservo.write(param.asInt());                // sets the servo position according to the scaled value
+delay(1);                                                 // waits for the servo to get there
+}
+void loop() {
+Blynk.run();
+Serial.print("Reading: ");
+Serial.print(scale.get_units(), 1);           //scale.get_units() returns a float
+  float wet=scale.get_units();
+  wet= map(wet,w1,w2,0,100);
+Serial.print(" lbs");     //You can change this to kg but you'll need to refactor the calibration_factor
+Serial.println(wet);
+Blynk.virtualWrite(V3, wet);
+  (wet<6)? digitalWrite(red, HIGH):digitalWrite(red, LOW);
+
+  while(digitalRead(mode1)==HIGH)
+  {
+     if (digitalRead(tare1) == HIGH) {
+digitalWrite(gre1, HIGH);
+        w1=scale.get_units();
+Serial.println("TARED");
+Serial.println(w1); //hx711 current o/p goes to w1
+digitalWrite(gre1, LOW);
+delay(200);
+       }
+     else if (digitalRead(set1) == HIGH) {
+digitalWrite(gre2, HIGH);
+        w2=(scale.get_units());
+Serial.println("SET");
+Serial.println(w2);
+digitalWrite(gre2, LOW);
+delay(200);
+       }
+       else
+       {
+delay(10);
+
+       }
+  }
+
+sensors.requestTemperatures();                           // Send the command to get temperatures  
+Serial.println("Temperature is: ");
+Serial.println(sensors.getTempCByIndex(0));    // Why "byIndex"? You can have more than one IC on the same bus. 0 refers to the first IC on the wire
+ float tem=sensors.getTempCByIndex(0);
+Blynk.virtualWrite(V2, tem);
+Serial.println();
+
+    }
+
+// CODE OF MAX30100
+#include <Wire.h>
+#include "MAX30100_PulseOximeter.h"
+#define BLYNK_PRINT Serial
+#include <Blynk.h>
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+#include "Wire.h"
+
+#define REPORTING_PERIOD_MS 1000
+
+char auth[] = "8VKPbPNQ5tJkZiosPzClsev-24MKu1AX";  // You should get Auth Token in the Blynk App.
+char ssid[] = "JioFiber-ak 5";                                                     // Your WiFi credentials.
+char pass[] = "Indianarmyparasf21";
+
+// Connections : SCL PIN - D1 , SDA PIN - D2 , INT PIN - D0
+PulseOximeterpox;
+
+float BPM, SpO2;
+uint32_t tsLastReport = 0;
+
+
+void onBeatDetected()
+{
+Serial.println("Beat Detected!");
+
+}
+
+void setup()
+{
+Serial.begin(115200);
+
+
+pinMode(16, OUTPUT);
+Blynk.begin(auth, ssid, pass);
+
+Serial.print("Initializing Pulse Oximeter..");
+
+    if (!pox.begin())
+    {
+Serial.println("FAILED");
+for(;;);
+    }
+    else
+    {
+Serial.println("SUCCESS");
+pox.setOnBeatDetectedCallback(onBeatDetected);
+    }
+
+    // The default current for the IR LED is 50mA and it could be changed by uncommenting the following line.
+     //pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA);
+
+}
+
+void loop()
+{
+pox.update();
+Blynk.run();
+
+    BPM = pox.getHeartRate();
+    SpO2 = pox.getSpO2();
+     if (millis() - tsLastReport> REPORTING_PERIOD_MS)
+    {
+Serial.print("Heart rate:");
+Serial.print(BPM);
+Serial.print(" bpm / SpO2:");
+Serial.print(SpO2);
+Serial.println(" %");
+
+Blynk.virtualWrite(V0, BPM);
+Blynk.virtualWrite(V1, SpO2);
+tsLastReport = millis();
+    }
+}
